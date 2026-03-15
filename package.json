@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
-    "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.27",
@@ -29,10 +28,15 @@
     "react-dom": "^18.3.1",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^3.4.19",
-    "typescript": "^5.9.3",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
-    "tsx": "^4.21.0"
+    "@types/node": "^25.5.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "prisma": {
+    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
   }
 }
