@@ -11,8 +11,27 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  password  String?
+  name      String?
+  image     String?
+  role      String    @default("USER") // ADMIN or USER
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  properties Property[]
+
+  @@index([email])
+}
+
 model Property {
   id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   name               String
   address            String
   city               String
@@ -37,6 +56,7 @@ model Property {
   calendarEvents     CalendarEvent[]
   syncLogs           SyncLog[]
 
+  @@index([userId])
   @@index([status])
   @@index([airbnbListingId])
 }

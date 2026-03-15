@@ -5,6 +5,21 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("🌱 Seeding database...");
 
+  // Get or create admin user
+  let adminUser = await prisma.user.findUnique({
+    where: { email: 'admin@channelflow.com' },
+  });
+
+  if (!adminUser) {
+    adminUser = await prisma.user.findFirst({
+      where: { role: 'ADMIN' },
+    });
+  }
+
+  if (!adminUser) {
+    throw new Error('No admin user found. Please ensure the admin user exists before seeding.');
+  }
+
   // Clear existing data
   await prisma.syncLog.deleteMany();
   await prisma.message.deleteMany();
@@ -15,6 +30,7 @@ async function main() {
   // Create sample properties
   const riadMarrakech = await prisma.property.create({
     data: {
+      userId: adminUser.id,
       name: "Riad Marrakech",
       address: "Derb Sidi Ahmed Ou Moussa",
       city: "Marrakech",
@@ -46,6 +62,7 @@ async function main() {
 
   const appartementParis = await prisma.property.create({
     data: {
+      userId: adminUser.id,
       name: "Appartement Paris",
       address: "75 Rue de Rivoli",
       city: "Paris",
@@ -68,6 +85,7 @@ async function main() {
 
   const villaBali = await prisma.property.create({
     data: {
+      userId: adminUser.id,
       name: "Villa Bali",
       address: "Jalan Cendrawasih",
       city: "Ubud",

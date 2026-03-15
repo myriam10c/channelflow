@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertCircle,
+  Plus,
 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -48,6 +49,20 @@ const STATUS_BADGE_VARIANTS: Record<
   cancelled: 'danger',
 };
 
+interface ReservationFormData {
+  propertyId: string;
+  guestName: string;
+  guestEmail: string;
+  guestPhone: string;
+  checkIn: string;
+  checkOut: string;
+  numberOfGuests: number;
+  totalPrice: number;
+  channel: string;
+  status: string;
+  specialRequests: string;
+}
+
 export default function ReservationsPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -56,7 +71,25 @@ export default function ReservationsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [formData, setFormData] = useState<ReservationFormData>({
+    propertyId: '',
+    guestName: '',
+    guestEmail: '',
+    guestPhone: '',
+    checkIn: '',
+    checkOut: '',
+    numberOfGuests: 1,
+    totalPrice: 0,
+    channel: 'direct',
+    status: 'confirmed',
+    specialRequests: '',
+  });
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Fetch data
   useEffect(() => {
@@ -68,14 +101,15 @@ export default function ReservationsPage() {
           fetch('/api/properties'),
         ]);
 
-        const resData = (await resRes.json()) as Reservation[];
-        const propsData = (await propsRes.json()) as Property[];
+        const resData = (await resRes.json());
+        const propsResJson = (await propsRes.json());
+        const propsData = propsResJson.data as Property[];
 
-        // Convert date strings to Date objects
-        const processedReservations = resData.map((r) => ({
+        // Convert date strings to Date objects and map checkIn/checkOut to checkInDate/checkOutDate
+        const processedReservations = resData.data.map((r: any) => ({
           ...r,
-          checkInDate: new Date(r.checkInDate),
-          checkOutDate: new Date(r.checkOutDate),
+          checkInDate: new Date(r.checkIn),
+          checkOutDate: new Date(r.checkOut),
         }));
 
         setReservations(processedReservations);
@@ -157,11 +191,136 @@ export default function ReservationsPage() {
   };
 
   const handleEdit = (reservation: Reservation) => {
-    console.log('Edit reservation:', reservation.id);
+    setSelectedReservation(reservation);
+    setFormData({
+      propertyId: reservation.propertyId,
+      guestName: reservation.guestName,
+      guestEmail: reservation.guestEmail,
+      guestPhone: reservation.guestPhone || '',
+      checkIn: new Date(reservation.checkInDate).toISOString().split('T')[0],
+      checkOut: new Date(reservation.checkOutDate).toISOString().split('T')[0],
+      numberOfGuests: reservation.numberOfGuests,
+      totalPrice: reservation.totalPrice || 0,
+      channel: reservation.channel,
+      status: reservation.status,
+      specialRequests: reservation.specialRequests || '',
+    });
+    setEditingId(reservation.id);
+    setShowDetailModal(false);
+    setShowEditModal(true);
   };
 
-  const handleCancel = (reservation: Reservation) => {
-    console.log('Cancel reservation:', reservation.id);
+  const handleDelete = async (reservationId: string) => {
+    try {
+      setSubmitting(true);
+      const response = await fetch(`/api/reservations/${reservationId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Failed to delete reservation');
+
+      setReservations(reservations.filter(r => r.id !== reservationId));
+      setShowDeleteConfirm(null);
+    } catch (error) {
+      console.error('Error deleting reservation:', error);
+      alert('Erreur lors de la suppression de la réservation');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData({
+      ...formData,
+      [name]: ['numberOfGuests', 'totalPrice'].includes(name)
+        ? name === 'numberOfGuests'
+          ? parseInt(value)
+          : parseFloat(value)
+        : value,
+    });
+  };
+
+  const handleCreateReservation = async () => {
+    try {
+      setSubmitting(true);
+      const response = await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          checkIn: new Date(formData.checkIn).toISOString(),
+          checkOut: new Date(formData.checkOut).toISOString(),
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to create reservation');
+
+      const newResData = await response.json();
+      const processedRes = {
+        ...newResData.data,
+        checkInDate: new Date(newResData.data.checkIn),
+        checkOutDate: new Date(newResData.data.checkOut),
+      };
+      setReservations([processedRes, ...reservations]);
+      setShowCreateModal(false);
+      resetForm();
+    } catch (error) {
+      console.error('Error creating reservation:', error);
+      alert('Erreur lors de la création de la réservation');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEditReservation = async () => {
+    if (!editingId) return;
+    try {
+      setSubmitting(true);
+      const response = await fetch(`/api/reservations/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          checkIn: new Date(formData.checkIn).toISOString(),
+          checkOut: new Date(formData.checkOut).toISOString(),
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to update reservation');
+
+      const updatedResData = await response.json();
+      const processedRes = {
+        ...updatedResData.data,
+        checkInDate: new Date(updatedResData.data.checkIn),
+        checkOutDate: new Date(updatedResData.data.checkOut),
+      };
+      setReservations(reservations.map(r => r.id === editingId ? processedRes : r));
+      setShowEditModal(false);
+      resetForm();
+      setEditingId(null);
+    } catch (error) {
+      console.error('Error updating reservation:', error);
+      alert('Erreur lors de la mise à jour de la réservation');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      propertyId: '',
+      guestName: '',
+      guestEmail: '',
+      guestPhone: '',
+      checkIn: '',
+      checkOut: '',
+      numberOfGuests: 1,
+      totalPrice: 0,
+      channel: 'direct',
+      status: 'confirmed',
+      specialRequests: '',
+    });
   };
 
   const filterTabs: { label: string; value: FilterStatus; count: number }[] = [
@@ -183,9 +342,23 @@ export default function ReservationsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-slate-50 mb-2">Réservations</h1>
-        <p className="text-slate-400">Gérez tous vos réservations</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-50 mb-2">Réservations</h1>
+          <p className="text-slate-400">Gérez tous vos réservations</p>
+        </div>
+        <Button
+          variant="primary"
+          size="md"
+          icon={<Plus size={20} />}
+          onClick={() => {
+            resetForm();
+            setEditingId(null);
+            setShowCreateModal(true);
+          }}
+        >
+          Nouvelle réservation
+        </Button>
       </div>
 
       {/* Statistics Bar */}
@@ -352,15 +525,13 @@ export default function ReservationsPage() {
                           >
                             <Edit2 size={16} />
                           </button>
-                          {reservation.status !== 'cancelled' && (
-                            <button
-                              onClick={() => handleCancel(reservation)}
-                              className="p-1.5 hover:bg-red-600/20 rounded transition-colors text-slate-400 hover:text-red-400"
-                              title="Annuler"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => setShowDeleteConfirm(reservation.id)}
+                            className="p-1.5 hover:bg-red-600/20 rounded transition-colors text-slate-400 hover:text-red-400"
+                            title="Supprimer"
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -563,11 +734,275 @@ export default function ReservationsPage() {
           >
             Fermer
           </Button>
-          <Button variant="primary" size="sm">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              if (selectedReservation) {
+                handleEdit(selectedReservation);
+              }
+            }}
+          >
             Éditer la réservation
           </Button>
         </div>
       </Modal>
+
+      {/* Create/Edit Reservation Modal */}
+      <Modal
+        isOpen={showCreateModal || showEditModal}
+        onClose={() => {
+          setShowCreateModal(false);
+          setShowEditModal(false);
+          resetForm();
+          setEditingId(null);
+        }}
+        title={editingId ? 'Modifier la réservation' : 'Nouvelle réservation'}
+        size="lg"
+      >
+        <form className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Property */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Propriété *
+              </label>
+              <select
+                name="propertyId"
+                value={formData.propertyId}
+                onChange={handleFormChange}
+                required
+                disabled={!!editingId}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">Sélectionner une propriété</option>
+                {properties.map((prop) => (
+                  <option key={prop.id} value={prop.id}>
+                    {prop.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Guest Name */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Nom du client *
+              </label>
+              <input
+                type="text"
+                name="guestName"
+                value={formData.guestName}
+                onChange={handleFormChange}
+                required
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Jean Dupont"
+              />
+            </div>
+
+            {/* Guest Email */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Email *
+              </label>
+              <input
+                type="email"
+                name="guestEmail"
+                value={formData.guestEmail}
+                onChange={handleFormChange}
+                required
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="jean@example.com"
+              />
+            </div>
+
+            {/* Guest Phone */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Téléphone
+              </label>
+              <input
+                type="tel"
+                name="guestPhone"
+                value={formData.guestPhone}
+                onChange={handleFormChange}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="+33 6 12 34 56 78"
+              />
+            </div>
+
+            {/* Check-in */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Arrivée *
+              </label>
+              <input
+                type="date"
+                name="checkIn"
+                value={formData.checkIn}
+                onChange={handleFormChange}
+                required
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Check-out */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Départ *
+              </label>
+              <input
+                type="date"
+                name="checkOut"
+                value={formData.checkOut}
+                onChange={handleFormChange}
+                required
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Number of Guests */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Nombre de clients *
+              </label>
+              <input
+                type="number"
+                name="numberOfGuests"
+                value={formData.numberOfGuests}
+                onChange={handleFormChange}
+                required
+                min="1"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Total Price */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Prix total €
+              </label>
+              <input
+                type="number"
+                name="totalPrice"
+                value={formData.totalPrice}
+                onChange={handleFormChange}
+                min="0"
+                step="0.01"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Channel */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Canal
+              </label>
+              <select
+                name="channel"
+                value={formData.channel}
+                onChange={handleFormChange}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="direct">Direct</option>
+                <option value="airbnb">Airbnb</option>
+                <option value="booking">Booking.com</option>
+                <option value="other">Autre</option>
+              </select>
+            </div>
+
+            {/* Status */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Statut
+              </label>
+              <select
+                name="status"
+                value={formData.status}
+                onChange={handleFormChange}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="pending">En attente</option>
+                <option value="confirmed">Confirmée</option>
+                <option value="completed">Terminée</option>
+                <option value="cancelled">Annulée</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Special Requests */}
+          <div>
+            <label className="block text-sm font-medium text-white mb-2">
+              Demandes spéciales
+            </label>
+            <textarea
+              name="specialRequests"
+              value={formData.specialRequests}
+              onChange={handleFormChange}
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              rows={3}
+              placeholder="Notes spéciales pour cette réservation..."
+            />
+          </div>
+
+          {/* Buttons */}
+          <div className="flex gap-3 justify-end pt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setShowCreateModal(false);
+                setShowEditModal(false);
+                resetForm();
+                setEditingId(null);
+              }}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              loading={submitting}
+              onClick={editingId ? handleEditReservation : handleCreateReservation}
+            >
+              {editingId ? 'Mettre à jour' : 'Créer la réservation'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <Modal
+          isOpen={!!showDeleteConfirm}
+          onClose={() => setShowDeleteConfirm(null)}
+          title="Supprimer la réservation"
+          size="md"
+        >
+          <div className="space-y-4">
+            <p className="text-slate-300">
+              Êtes-vous sûr de vouloir supprimer cette réservation ? Cette action est irréversible.
+            </p>
+
+            <div className="flex gap-3 justify-end pt-4 border-t border-slate-700">
+              <Button
+                variant="secondary"
+                onClick={() => setShowDeleteConfirm(null)}
+              >
+                Annuler
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-red-400 hover:text-red-300"
+                loading={submitting}
+                onClick={() => handleDelete(showDeleteConfirm)}
+              >
+                Supprimer
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -1,8 +1,20 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
+    const session = await auth();
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     // Get current date info
     const today = new Date();
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -10,7 +22,7 @@ export async function GET(request: Request) {
 
     // 1. Count of properties
     const propertiesCount = await prisma.property.count({
-      where: { status: 'active' },
+      where: { userId: session.user.id, status: 'active' },
     });
 
     // 2. Count of active reservations (confirmed, check-out > today)
@@ -20,12 +32,20 @@ export async function GET(request: Request) {
         checkOut: {
           gt: today,
         },
+        property: {
+          userId: session.user.id,
+        },
       },
     });
 
     // 3. Get all confirmed reservations for occupancy and revenue calculation
     const allReservations = await prisma.reservation.findMany({
-      where: { status: 'confirmed' },
+      where: {
+        status: 'confirmed',
+        property: {
+          userId: session.user.id,
+        },
+      },
       select: {
         checkIn: true,
         checkOut: true,
@@ -59,6 +79,9 @@ export async function GET(request: Request) {
           gte: monthStart,
           lte: monthEnd,
         },
+        property: {
+          userId: session.user.id,
+        },
       },
       _sum: {
         totalPrice: true,
@@ -69,7 +92,12 @@ export async function GET(request: Request) {
 
     // 5. Unread messages count
     const unreadMessages = await prisma.message.count({
-      where: { isRead: false },
+      where: {
+        isRead: false,
+        property: {
+          userId: session.user.id,
+        },
+      },
     });
 
     // 6. Today's check-ins count
@@ -84,12 +112,20 @@ export async function GET(request: Request) {
           gte: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
           lt: tomorrowStart,
         },
+        property: {
+          userId: session.user.id,
+        },
       },
     });
 
     // 7. Recent 5 reservations with property info
     const recentReservations = await prisma.reservation.findMany({
       take: 5,
+      where: {
+        property: {
+          userId: session.user.id,
+        },
+      },
       orderBy: { checkIn: 'desc' },
       include: {
         property: true,
@@ -99,6 +135,11 @@ export async function GET(request: Request) {
     // 8. Recent activity (last 10 sync logs)
     const recentActivity = await prisma.syncLog.findMany({
       take: 10,
+      where: {
+        property: {
+          userId: session.user.id,
+        },
+      },
       orderBy: { syncedAt: 'desc' },
       include: {
         property: true,

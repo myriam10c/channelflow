@@ -1,21 +1,34 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
 export async function GET(request: Request) {
   try {
+    const session = await auth();
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
 
     const properties = await prisma.property.findMany({
-      where: search
-        ? {
-            OR: [
-              { name: { contains: search } },
-              { address: { contains: search } },
-              { city: { contains: search } },
-            ],
-          }
-        : {},
+      where: {
+        userId: session.user.id,
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: 'insensitive' } },
+                { address: { contains: search, mode: 'insensitive' } },
+                { city: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
       include: {
         _count: {
           select: { reservations: true },
@@ -24,9 +37,17 @@ export async function GET(request: Request) {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Parse JSON fields and add channels
+    const formattedProperties = properties.map((prop) => ({
+      ...prop,
+      amenities: prop.amenities ? JSON.parse(prop.amenities) : [],
+      images: prop.images ? JSON.parse(prop.images) : [],
+      channels: ['direct'], // Default channel
+    }));
+
     return NextResponse.json({
       success: true,
-      data: properties,
+      data: formattedProperties,
     });
   } catch (error) {
     console.error('Properties GET error:', error);
@@ -39,6 +60,15 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const session = await auth();
+
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
 
     const {
@@ -57,6 +87,7 @@ export async function POST(request: Request) {
       airbnbIcalUrl,
       images,
       amenities,
+      channels,
     } = body;
 
     // Validate required fields
@@ -69,21 +100,22 @@ export async function POST(request: Request) {
 
     const property = await prisma.property.create({
       data: {
-        name,
-        address,
-        city,
-        country,
-        description,
-        bedrooms,
-        bathrooms,
-        maxGuests,
-        pricePerNight,
+        userId: session.user.id,
+        name: name.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        country: country.trim(),
+        description: description?.trim() || null,
+        bedrooms: parseInt(bedrooms),
+        bathrooms: parseInt(bathrooms),
+        maxGuests: parseInt(maxGuests),
+        pricePerNight: parseFloat(pricePerNight),
         currency: currency || 'USD',
         status: status || 'active',
         airbnbListingId,
         airbnbIcalUrl,
-        images: images ? JSON.stringify(images) : null,
-        amenities: amenities ? JSON.stringify(amenities) : null,
+        images: images && images.length > 0 ? JSON.stringify(images) : null,
+        amenities: amenities && amenities.length > 0 ? JSON.stringify(amenities) : null,
       },
     });
 

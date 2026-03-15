@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { signOut, useSession } from 'next-auth/react';
 import {
   LayoutDashboard,
   Building2,
@@ -23,6 +24,7 @@ interface NavItem {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const navItems: NavItem[] = [
@@ -152,20 +154,25 @@ export default function Sidebar() {
       <div className="p-4 border-t border-slate-800">
         <div className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
           <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex-shrink-0 flex items-center justify-center">
-            <span className="text-white font-bold">JD</span>
+            <span className="text-white font-bold">
+              {session?.user?.name?.charAt(0).toUpperCase() || 'U'}
+            </span>
           </div>
           {!isCollapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-slate-200 truncate">
-                John Doe
+                {session?.user?.name || 'User'}
               </p>
-              <p className="text-xs text-slate-400 truncate">john@example.com</p>
+              <p className="text-xs text-slate-400 truncate">
+                {session?.user?.email || ''}
+              </p>
             </div>
           )}
         </div>
 
         {/* Logout button */}
         <button
+          onClick={() => signOut({ callbackUrl: '/auth/login' })}
           className={`mt-4 w-full flex items-center gap-3 px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-all duration-200 ${
             isCollapsed ? 'justify-center' : ''
           }`}

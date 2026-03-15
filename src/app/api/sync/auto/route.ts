@@ -1,7 +1,98 @@
-import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { NextResponse, NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { parseICalFeed } from '@/lib/ical-parser';
+
+export const dynamic = 'force-dynamic';
+
+/**
+ * GET /api/sync/auto
+ * Syncs all properties that have iCal URLs configured
+ * This endpoint is designed to be called by external cron jobs or schedulers
+ * Requires X-Cron-Key header for security
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Security check - require cron key
+    const cronKey = request.headers.get('X-Cron-Key');
+    const expectedKey = process.env.CRON_SECRET_KEY;
+
+    if (!expectedKey || cronKey !== expectedKey) {
+      return NextResponse.json(
+        { error: 'Unauthorized - invalid cron key' },
+        { status: 401 }
+      );
+    }
+
+    // Fetch all properties with iCal URLs
+    const properties = await prisma.property.findMany({
+      where: {
+        airbnbIcalUrl: {
+          not: null,
+        },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    const results = [];
+
+    // Sync each property
+    for (const property of properties) {
+      try {
+        if (!property.airbnbIcalUrl) continue;
+
+        const syncResult = await performICalSync(property.id, property.airbnbIcalUrl);
+
+        results.push({
+          propertyId: property.id,
+          propertyName: property.name,
+          status: syncResult.errors.length > 0 ? 'partial' : 'success',
+          result: syncResult,
+        });
+
+        // Log the sync
+        await prisma.syncLog.create({
+          data: {
+            propertyId: property.id,
+            channel: 'ical',
+            status: syncResult.errors.length > 0 ? 'error' : 'success',
+            message: `Auto-sync: ${syncResult.newReservations} new, ${syncResult.updatedReservations} updated. Errors: ${syncResult.errors.length}`,
+          },
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        results.push({
+          propertyId: property.id,
+          propertyName: property.name,
+          status: 'error',
+          error: errorMsg,
+        });
+
+        await prisma.syncLog.create({
+          data: {
+            propertyId: property.id,
+            channel: 'ical',
+            status: 'error',
+            message: `Auto-sync failed: ${errorMsg}`,
+          },
+        });
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      propertiesSynced: properties.length,
+      results,
+    });
+  } catch (error) {
+    console.error('Auto-sync error:', error);
+    return NextResponse.json(
+      { error: 'Failed to perform auto-sync' },
+      { status: 500 }
+    );
+  }
+}
 
 interface SyncResult {
   newReservations: number;
@@ -10,157 +101,6 @@ interface SyncResult {
   errors: string[];
   successCount: number;
   totalProcessed: number;
-}
-
-export async function GET(request: Request) {
-  try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const { searchParams } = new URL(request.url);
-    const propertyId = searchParams.get('propertyId');
-
-    // If propertyId is provided, verify ownership
-    if (propertyId) {
-      const property = await prisma.property.findUnique({
-        where: { id: propertyId },
-      });
-
-      if (!property || property.userId !== session.user.id) {
-        return NextResponse.json(
-          { success: false, error: 'Property not found or unauthorized' },
-          { status: 404 }
-        );
-      }
-    }
-
-    const syncLogs = await prisma.syncLog.findMany({
-      where: propertyId
-        ? { propertyId }
-        : { property: { userId: session.user.id } },
-      include: {
-        property: true,
-      },
-      orderBy: { syncedAt: 'desc' },
-      take: 50,
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: syncLogs,
-    });
-  } catch (error) {
-    console.error('Sync logs GET error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to fetch sync logs' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: Request) {
-  let propertyId: string | null = null;
-
-  try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
-    propertyId = body.propertyId;
-
-    if (!propertyId) {
-      return NextResponse.json(
-        { success: false, error: 'propertyId is required' },
-        { status: 400 }
-      );
-    }
-
-    // Get the property and verify it exists and user owns it
-    const property = await prisma.property.findUnique({
-      where: { id: propertyId },
-    });
-
-    if (!property) {
-      return NextResponse.json(
-        { success: false, error: 'Property not found' },
-        { status: 404 }
-      );
-    }
-
-    if (property.userId !== session.user.id) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized to sync this property' },
-        { status: 403 }
-      );
-    }
-
-    // Check if property has iCal URL
-    if (!property.airbnbIcalUrl) {
-      return NextResponse.json(
-        { success: false, error: 'Property does not have an iCal URL configured' },
-        { status: 400 }
-      );
-    }
-
-    // Perform the actual sync
-    const result = await performICalSync(propertyId, property.airbnbIcalUrl);
-
-    // Log the sync
-    const syncLog = await prisma.syncLog.create({
-      data: {
-        propertyId,
-        channel: 'ical',
-        status: result.errors.length > 0 ? 'error' : 'success',
-        message: `Synced: ${result.newReservations} new, ${result.updatedReservations} updated, ${result.newBlockedDates} blocked dates. Errors: ${result.errors.length}`,
-      },
-    });
-
-    return NextResponse.json(
-      {
-        success: true,
-        data: {
-          syncStatus: result.errors.length > 0 ? 'partial' : 'success',
-          result,
-          syncLog,
-        },
-      },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Sync POST error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Sync failed';
-
-    // Log the error in sync logs
-    if (propertyId) {
-      try {
-        await prisma.syncLog.create({
-          data: {
-            propertyId,
-            channel: 'ical',
-            status: 'error',
-            message: errorMessage,
-          },
-        });
-      } catch {
-        // Ignore error in logging
-      }
-    }
-
-    return NextResponse.json(
-      { success: false, error: errorMessage },
-      { status: 500 }
-    );
-  }
 }
 
 async function performICalSync(propertyId: string, icalUrl: string): Promise<SyncResult> {
@@ -187,12 +127,10 @@ async function performICalSync(propertyId: string, icalUrl: string): Promise<Syn
         const title = event.title || 'Reservation';
         const uid = event.uid || `ical-${event.startDate}-${event.endDate}`;
 
-        // Check if this is a reservation (guest name in summary) or blocked date
+        // Check if this is a reservation or blocked date
         const isReservation = /^[A-Z]/i.test(title) && !title.toLowerCase().includes('blocked');
 
         if (isReservation) {
-          // Try to upsert as reservation
-          // Parse guest name from title (format: "Guest Name")
           const guestName = title;
 
           // Check if already exists
@@ -204,7 +142,6 @@ async function performICalSync(propertyId: string, icalUrl: string): Promise<Syn
           });
 
           if (existing) {
-            // Update existing
             await prisma.reservation.update({
               where: { id: existing.id },
               data: {
@@ -215,7 +152,6 @@ async function performICalSync(propertyId: string, icalUrl: string): Promise<Syn
             });
             result.updatedReservations++;
           } else {
-            // Create new
             await prisma.reservation.create({
               data: {
                 propertyId,

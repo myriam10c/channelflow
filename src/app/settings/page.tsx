@@ -80,6 +80,9 @@ export default function SettingsPage() {
   // Sync State
   const [autoSyncInterval, setAutoSyncInterval] = useState('15');
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [properties, setProperties] = useState<any[]>([]);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [propertySyncStatus, setPropertySyncStatus] = useState<Record<string, boolean>>({});
 
   // Load settings
   useEffect(() => {
@@ -102,10 +105,17 @@ export default function SettingsPage() {
           if (data.lastSync) setLastSync(new Date(data.lastSync));
 
           // Load sync logs
-          const logsResponse = await fetch('/api/settings/sync-logs');
+          const logsResponse = await fetch('/api/sync');
           if (logsResponse.ok) {
             const logs = await logsResponse.json();
-            setSyncLogs(logs.syncLogs || []);
+            setSyncLogs(logs.data || []);
+          }
+
+          // Load properties
+          const propertiesResponse = await fetch('/api/properties');
+          if (propertiesResponse.ok) {
+            const propsData = await propertiesResponse.json();
+            setProperties(propsData.data || []);
           }
         }
       } catch (error) {
@@ -188,20 +198,56 @@ export default function SettingsPage() {
   const handleManualSync = async () => {
     try {
       setSyncing(true);
-      const response = await fetch('/api/sync/manual', { method: 'POST' });
+      const response = await fetch('/api/sync', { method: 'POST', body: JSON.stringify({}) });
       if (response.ok) {
         setLastSync(new Date());
         // Refresh logs
-        const logsResponse = await fetch('/api/settings/sync-logs');
+        const logsResponse = await fetch('/api/sync');
         if (logsResponse.ok) {
           const logs = await logsResponse.json();
-          setSyncLogs(logs.syncLogs || []);
+          setSyncLogs(logs.data || []);
         }
       }
     } catch (error) {
       console.error('Erreur lors de la synchronisation:', error);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  // Sync all properties
+  const handleSyncAll = async () => {
+    try {
+      setSyncingAll(true);
+
+      // Sync each property with iCal URL
+      for (const prop of properties) {
+        if (prop.airbnbIcalUrl) {
+          setPropertySyncStatus(prev => ({ ...prev, [prop.id]: true }));
+          try {
+            await fetch('/api/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ propertyId: prop.id }),
+            });
+          } catch (error) {
+            console.error(`Failed to sync property ${prop.id}:`, error);
+          }
+          setPropertySyncStatus(prev => ({ ...prev, [prop.id]: false }));
+        }
+      }
+
+      setLastSync(new Date());
+      // Refresh logs
+      const logsResponse = await fetch('/api/sync');
+      if (logsResponse.ok) {
+        const logs = await logsResponse.json();
+        setSyncLogs(logs.data || []);
+      }
+    } catch (error) {
+      console.error('Erreur lors de la synchronisation:', error);
+    } finally {
+      setSyncingAll(false);
     }
   };
 
@@ -617,6 +663,72 @@ export default function SettingsPage() {
                   Enregistrer
                 </Button>
               </div>
+            </Card>
+
+            {/* Properties Sync Status */}
+            <Card padding="lg">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold">Synchronisation des propriétés</h2>
+                <Button
+                  onClick={handleSyncAll}
+                  disabled={syncingAll || properties.filter(p => p.airbnbIcalUrl).length === 0}
+                  loading={syncingAll}
+                  icon={<RefreshCw className="w-4 h-4" />}
+                  size="sm"
+                >
+                  Tout synchroniser
+                </Button>
+              </div>
+
+              {properties.length === 0 ? (
+                <div className="text-center py-8 text-slate-400">
+                  Aucune propriété configurée
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {properties.map((prop) => (
+                    <div
+                      key={prop.id}
+                      className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700"
+                    >
+                      <div className="flex-1">
+                        <h3 className="font-medium text-slate-100">{prop.name}</h3>
+                        {prop.airbnbIcalUrl ? (
+                          <p className="text-xs text-slate-400 mt-1 truncate">
+                            iCal configurée
+                          </p>
+                        ) : (
+                          <p className="text-xs text-yellow-400 mt-1">
+                            iCal non configurée
+                          </p>
+                        )}
+                      </div>
+                      {prop.airbnbIcalUrl && (
+                        <Button
+                          onClick={async () => {
+                            setPropertySyncStatus(prev => ({ ...prev, [prop.id]: true }));
+                            try {
+                              await fetch('/api/sync', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ propertyId: prop.id }),
+                              });
+                            } finally {
+                              setPropertySyncStatus(prev => ({ ...prev, [prop.id]: false }));
+                            }
+                          }}
+                          disabled={propertySyncStatus[prop.id]}
+                          loading={propertySyncStatus[prop.id]}
+                          icon={<RefreshCw className="w-4 h-4" />}
+                          size="sm"
+                        >
+                          Syncer
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
 
             {/* Sync Logs */}

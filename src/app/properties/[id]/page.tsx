@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import {
   ArrowLeft,
@@ -20,11 +20,15 @@ import {
   Wifi,
   Wind,
   Waves,
+  Trash2,
+  RefreshCw,
+  Download,
 } from 'lucide-react';
 import Link from 'next/link';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
+import Modal from '@/components/ui/Modal';
 import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/components/ui/Table';
 
 interface PropertyDetail {
@@ -49,6 +53,20 @@ interface PropertyDetail {
   reservations?: any[];
 }
 
+interface EditFormData {
+  name: string;
+  address: string;
+  city: string;
+  country: string;
+  description: string;
+  bedrooms: number;
+  bathrooms: number;
+  maxGuests: number;
+  pricePerNight: number;
+  currency: string;
+  status: string;
+}
+
 export default function PropertyDetailPage() {
   const params = useParams();
   const propertyId = params.id as string;
@@ -58,6 +76,10 @@ export default function PropertyDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'details' | 'calendar' | 'reservations' | 'settings'>('details');
   const [copied, setCopied] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [editFormData, setEditFormData] = useState<EditFormData | null>(null);
 
   useEffect(() => {
     fetchProperty();
@@ -84,6 +106,80 @@ export default function PropertyDetailPage() {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleEditClick = () => {
+    if (property) {
+      setEditFormData({
+        name: property.name,
+        address: property.address,
+        city: property.city,
+        country: property.country,
+        description: property.description || '',
+        bedrooms: property.bedrooms,
+        bathrooms: property.bathrooms,
+        maxGuests: property.maxGuests,
+        pricePerNight: property.pricePerNight,
+        currency: property.currency,
+        status: property.status,
+      });
+      setShowEditModal(true);
+    }
+  };
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    if (!editFormData) return;
+    const { name, value } = e.target;
+    setEditFormData({
+      ...editFormData,
+      [name]: ['bedrooms', 'bathrooms', 'maxGuests'].includes(name)
+        ? parseInt(value)
+        : name === 'pricePerNight'
+          ? parseFloat(value)
+          : value,
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editFormData || !property) return;
+
+    try {
+      setSubmitting(true);
+      const response = await fetch(`/api/properties/${propertyId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editFormData),
+      });
+
+      if (!response.ok) throw new Error('Failed to update property');
+
+      await fetchProperty();
+      setShowEditModal(false);
+    } catch (err) {
+      console.error('Error updating property:', err);
+      setError('Erreur lors de la mise à jour de la propriété');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      setSubmitting(true);
+      const response = await fetch(`/api/properties/${propertyId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Failed to delete property');
+
+      window.location.href = '/properties';
+    } catch (err) {
+      console.error('Error deleting property:', err);
+      setError('Erreur lors de la suppression de la propriété');
+    } finally {
+      setSubmitting(false);
+      setShowDeleteConfirm(false);
+    }
   };
 
   if (loading) {
@@ -161,9 +257,14 @@ export default function PropertyDetailPage() {
             </p>
           </div>
         </div>
-        <Button variant="primary" size="md" icon={<Edit size={20} />}>
-          Modifier
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="primary" size="md" icon={<Edit size={20} />} onClick={handleEditClick}>
+            Modifier
+          </Button>
+          <Button variant="ghost" size="md" icon={<Trash2 size={20} />} className="text-red-400 hover:text-red-300" onClick={() => setShowDeleteConfirm(true)}>
+            Supprimer
+          </Button>
+        </div>
       </div>
 
       {/* Property Image Placeholder */}
@@ -422,21 +523,7 @@ export default function PropertyDetailPage() {
               </div>
 
               {/* Sync Status */}
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">
-                  Statut de synchronisation
-                </label>
-                <div className="flex items-center gap-2 p-3 bg-slate-800/30 rounded-lg">
-                  <CheckCircle2 className="text-emerald-400" size={20} />
-                  <div>
-                    <p className="text-white font-medium">Synchronisé</p>
-                    <p className="text-xs text-slate-400">Dernière sync: il y a 2 heures</p>
-                  </div>
-                  <Button variant="secondary" size="sm" icon={<Wifi size={16} />} className="ml-auto">
-                    Resynchroniser
-                  </Button>
-                </div>
-              </div>
+              <SyncStatusSection propertyId={propertyId} />
             </div>
           </Card>
 
@@ -463,6 +550,389 @@ export default function PropertyDetailPage() {
           </Card>
         </div>
       )}
+
+      {/* Edit Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Modifier la propriété"
+        size="lg"
+      >
+        {editFormData && (
+          <form className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Name */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Nom de la propriété *
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  value={editFormData.name}
+                  onChange={handleEditChange}
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Maison à la côte..."
+                />
+              </div>
+
+              {/* Address */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Adresse *
+                </label>
+                <input
+                  type="text"
+                  name="address"
+                  value={editFormData.address}
+                  onChange={handleEditChange}
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="123 Rue de la Plage"
+                />
+              </div>
+
+              {/* City */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Ville *
+                </label>
+                <input
+                  type="text"
+                  name="city"
+                  value={editFormData.city}
+                  onChange={handleEditChange}
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Paris"
+                />
+              </div>
+
+              {/* Country */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Pays *
+                </label>
+                <input
+                  type="text"
+                  name="country"
+                  value={editFormData.country}
+                  onChange={handleEditChange}
+                  required
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="France"
+                />
+              </div>
+
+              {/* Bedrooms */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Chambres *
+                </label>
+                <input
+                  type="number"
+                  name="bedrooms"
+                  value={editFormData.bedrooms}
+                  onChange={handleEditChange}
+                  required
+                  min="1"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Bathrooms */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Salles de bain *
+                </label>
+                <input
+                  type="number"
+                  name="bathrooms"
+                  value={editFormData.bathrooms}
+                  onChange={handleEditChange}
+                  required
+                  min="1"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Max Guests */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Nombre d'hôtes maximum *
+                </label>
+                <input
+                  type="number"
+                  name="maxGuests"
+                  value={editFormData.maxGuests}
+                  onChange={handleEditChange}
+                  required
+                  min="1"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Price */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Prix par nuit ({editFormData.currency}) *
+                </label>
+                <input
+                  type="number"
+                  name="pricePerNight"
+                  value={editFormData.pricePerNight}
+                  onChange={handleEditChange}
+                  required
+                  min="0"
+                  step="0.01"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Description
+              </label>
+              <textarea
+                name="description"
+                value={editFormData.description}
+                onChange={handleEditChange}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                rows={4}
+                placeholder="Décrivez votre propriété..."
+              />
+            </div>
+
+            {/* Status */}
+            <div>
+              <label className="block text-sm font-medium text-white mb-2">
+                Statut
+              </label>
+              <select
+                name="status"
+                value={editFormData.status}
+                onChange={handleEditChange}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="active">Actif</option>
+                <option value="inactive">Inactif</option>
+                <option value="maintenance">Maintenance</option>
+              </select>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3 justify-end pt-4">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowEditModal(false)}
+              >
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                loading={submitting}
+                onClick={handleSaveEdit}
+              >
+                Enregistrer les modifications
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title="Supprimer la propriété"
+        size="md"
+      >
+        <div className="space-y-4">
+          <p className="text-slate-300">
+            Êtes-vous sûr de vouloir supprimer cette propriété ? Cette action est irréversible.
+          </p>
+          <p className="text-sm text-slate-400">
+            {property?.name} et toutes ses réservations associées seront supprimées.
+          </p>
+
+          <div className="flex gap-3 justify-end pt-4 border-t border-slate-700">
+            <Button
+              variant="secondary"
+              onClick={() => setShowDeleteConfirm(false)}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="ghost"
+              className="text-red-400 hover:text-red-300"
+              loading={submitting}
+              onClick={handleDelete}
+            >
+              Supprimer la propriété
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
+  );
+}
+
+function SyncStatusSection({ propertyId }: { propertyId: string }) {
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [syncStatus, setSyncStatus] = useState<'success' | 'error' | null>(null);
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncLogs, setSyncLogs] = useState<any[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
+
+  useEffect(() => {
+    fetchSyncStatus();
+  }, [propertyId]);
+
+  const fetchSyncStatus = async () => {
+    try {
+      const response = await fetch(`/api/sync?propertyId=${propertyId}`);
+      if (response.ok) {
+        const result = await response.json();
+        const logs = result.data || [];
+        setSyncLogs(logs);
+        if (logs.length > 0) {
+          setLastSync(new Date(logs[0].syncedAt));
+          setSyncStatus(logs[0].status === 'success' ? 'success' : 'error');
+          setSyncMessage(logs[0].message || '');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch sync status:', error);
+    }
+  };
+
+  const handleSync = async () => {
+    try {
+      setSyncing(true);
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ propertyId }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setSyncStatus('success');
+        setSyncMessage(result.data?.result?.successCount
+          ? `Synchronisé: ${result.data.result.newReservations} nouvelles, ${result.data.result.updatedReservations} mises à jour`
+          : 'Synchronisation réussie'
+        );
+        setLastSync(new Date());
+        await fetchSyncStatus();
+      } else {
+        setSyncStatus('error');
+        setSyncMessage(result.error || 'Erreur de synchronisation');
+      }
+    } catch (error) {
+      setSyncStatus('error');
+      setSyncMessage(error instanceof Error ? error.message : 'Erreur de synchronisation');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleDownloadIcal = () => {
+    window.location.href = `/api/ical/${propertyId}`;
+  };
+
+  return (
+    <>
+      <div>
+        <label className="block text-sm font-medium text-white mb-2">
+          Statut de synchronisation
+        </label>
+        <div className="flex items-center gap-2 p-3 bg-slate-800/30 rounded-lg mb-3">
+          {syncStatus === 'success' ? (
+            <CheckCircle2 className="text-emerald-400" size={20} />
+          ) : syncStatus === 'error' ? (
+            <AlertCircle className="text-red-400" size={20} />
+          ) : (
+            <Calendar className="text-slate-400" size={20} />
+          )}
+          <div className="flex-1">
+            <p className="text-white font-medium">
+              {syncStatus === 'success'
+                ? 'Synchronisé'
+                : syncStatus === 'error'
+                  ? 'Erreur lors de la dernière sync'
+                  : 'Pas encore synchronisé'}
+            </p>
+            {lastSync && (
+              <p className="text-xs text-slate-400">
+                Dernière sync: {formatDistanceToNow(lastSync, { locale: fr, addSuffix: true })}
+              </p>
+            )}
+            {syncMessage && (
+              <p className="text-xs text-slate-400 mt-1">{syncMessage}</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<RefreshCw size={16} />}
+              onClick={handleSync}
+              loading={syncing}
+              disabled={syncing}
+            >
+              Synchroniser
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Download size={16} />}
+              onClick={handleDownloadIcal}
+              title="Télécharger le calendrier iCal"
+            />
+          </div>
+        </div>
+      </div>
+
+      {syncLogs.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowLogs(!showLogs)}
+            className="text-sm text-blue-400 hover:text-blue-300 mb-2"
+          >
+            {showLogs ? 'Masquer' : 'Afficher'} l'historique de synchronisation ({syncLogs.length})
+          </button>
+          {showLogs && (
+            <div className="bg-slate-800/30 rounded-lg p-3 max-h-48 overflow-y-auto">
+              <div className="space-y-2">
+                {syncLogs.map((log) => (
+                  <div key={log.id} className="text-xs border-b border-slate-700 pb-2">
+                    <div className="flex items-center gap-2">
+                      {log.status === 'success' ? (
+                        <CheckCircle2 className="text-emerald-400" size={14} />
+                      ) : (
+                        <AlertCircle className="text-red-400" size={14} />
+                      )}
+                      <span className="text-slate-300">
+                        {format(new Date(log.syncedAt), 'dd MMM yyyy HH:mm', { locale: fr })}
+                      </span>
+                    </div>
+                    {log.message && (
+                      <p className="text-slate-400 mt-1">{log.message}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
