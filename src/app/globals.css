@@ -1,0 +1,241 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar styles */
+::-webkit-scrollbar {
+  @apply w-2 h-2;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-slate-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded-full hover:bg-slate-600;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-500;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-color: rgb(51, 65, 85) rgb(15, 23, 42);
+  scrollbar-width: thin;
+}
+
+/* Smooth transitions */
+@layer base {
+  * {
+    @apply transition-colors duration-200;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-100;
+  }
+}
+
+/* Custom component classes */
+@layer components {
+  /* Card component styles */
+  .card {
+    @apply bg-slate-900 border border-slate-800 rounded-lg p-4 shadow-sm hover:border-slate-700 transition-all duration-200;
+  }
+
+  .card-lg {
+    @apply bg-slate-900 border border-slate-800 rounded-lg p-6 shadow-sm hover:border-slate-700 transition-all duration-200;
+  }
+
+  /* Badge component styles */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply bg-blue-500/20 text-blue-300 border border-blue-500/30;
+  }
+
+  .badge-success {
+    @apply bg-green-500/20 text-green-300 border border-green-500/30;
+  }
+
+  .badge-warning {
+    @apply bg-yellow-500/20 text-yellow-300 border border-yellow-500/30;
+  }
+
+  .badge-danger {
+    @apply bg-red-500/20 text-red-300 border border-red-500/30;
+  }
+
+  .badge-secondary {
+    @apply bg-slate-700/50 text-slate-300 border border-slate-600;
+  }
+
+  /* Button component styles */
+  .btn {
+    @apply inline-flex items-center justify-center font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+  }
+
+  .btn-secondary {
+    @apply bg-slate-700 text-slate-100 hover:bg-slate-600 focus:ring-slate-500;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-slate-300 hover:bg-slate-800 focus:ring-slate-500 border border-slate-700;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+
+  .btn-md {
+    @apply px-4 py-2 text-base;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-lg;
+  }
+
+  /* Input field styles */
+  .input {
+    @apply w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all duration-200;
+  }
+
+  .input:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  /* Label styles */
+  .label {
+    @apply block text-sm font-medium text-slate-300 mb-2;
+  }
+
+  /* Text utilities */
+  .text-muted {
+    @apply text-slate-400;
+  }
+
+  .text-subtle {
+    @apply text-slate-500;
+  }
+
+  /* Heading styles */
+  h1 {
+    @apply text-3xl font-bold text-slate-50;
+  }
+
+  h2 {
+    @apply text-2xl font-bold text-slate-100;
+  }
+
+  h3 {
+    @apply text-lg font-semibold text-slate-200;
+  }
+
+  /* Link styles */
+  a {
+    @apply text-blue-400 hover:text-blue-300 transition-colors duration-200;
+  }
+
+  a:focus {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-950 rounded;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-slate-800;
+  }
+
+  /* Animation utilities */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-in {
+    from {
+      transform: translateX(-10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-in-up {
+    from {
+      transform: translateY(10px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-in-out;
+  }
+
+  .animate-slide-in {
+    animation: slide-in 0.3s ease-in-out;
+  }
+
+  .animate-slide-in-up {
+    animation: slide-in-up 0.3s ease-in-out;
+  }
+}
+
+/* Utility classes for layout */
+.container-main {
+  @apply max-w-7xl mx-auto;
+}
+
+/* Focus visible ring */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-950;
+}
+
+/* Loading skeleton animation */
+@keyframes skeleton-loading {
+  0% {
+    background-color: rgb(30, 41, 59);
+  }
+  50% {
+    background-color: rgb(51, 65, 85);
+  }
+  100% {
+    background-color: rgb(30, 41, 59);
+  }
+}
+
+.skeleton {
+  animation: skeleton-loading 1.5s infinite;
+}
+
+/* Responsive grid */
+.grid-responsive {
+  @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4;
+}
+
+.grid-responsive-lg {
+  @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6;
+}

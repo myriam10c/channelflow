@@ -1,0 +1,132 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Property {
+  id                 String    @id @default(cuid())
+  name               String
+  address            String
+  city               String
+  country            String
+  description        String?
+  bedrooms           Int
+  bathrooms          Int
+  maxGuests          Int
+  pricePerNight      Float
+  currency           String    @default("USD")
+  status             String    @default("active") // active, inactive, archived
+  airbnbListingId    String?   @unique
+  airbnbIcalUrl      String?
+  images             String? // JSON array stored as string
+  amenities          String? // JSON array stored as string
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  reservations       Reservation[]
+  messages           Message[]
+  calendarEvents     CalendarEvent[]
+  syncLogs           SyncLog[]
+
+  @@index([status])
+  @@index([airbnbListingId])
+}
+
+model Reservation {
+  id                   String    @id @default(cuid())
+  propertyId           String
+  property             Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  guestName            String
+  guestEmail           String
+  guestPhone           String?
+  channel              String    @default("airbnb") // airbnb, booking, direct, etc.
+  checkIn              DateTime
+  checkOut             DateTime
+  status               String    @default("confirmed") // confirmed, pending, cancelled, completed
+  totalPrice           Float?
+  currency             String    @default("USD")
+  numberOfGuests       Int
+  specialRequests      String?
+  airbnbReservationId  String?   @unique
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  messages             Message[]
+  calendarEvents       CalendarEvent[]
+
+  @@index([propertyId])
+  @@index([status])
+  @@index([checkIn])
+  @@index([checkOut])
+  @@index([airbnbReservationId])
+}
+
+model Message {
+  id                 String    @id @default(cuid())
+  reservationId      String?
+  reservation        Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  propertyId         String
+  property           Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  guestName          String
+  content            String
+  direction          String    @default("incoming") // incoming or outgoing
+  channel            String    // airbnb, booking, email, whatsapp, etc.
+  isRead             Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+
+  // Relations
+  @@index([reservationId])
+  @@index([propertyId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model CalendarEvent {
+  id                 String    @id @default(cuid())
+  propertyId         String
+  property           Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  reservationId      String?
+  reservation        Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  title              String
+  startDate          DateTime
+  endDate            DateTime
+  type               String    @default("blocked") // blocked, reservation, maintenance
+  source             String    @default("manual") // manual, airbnb, ical
+  externalId         String?   // ID from external source (Airbnb, iCal, etc.)
+  createdAt          DateTime  @default(now())
+
+  @@index([propertyId])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([type])
+}
+
+model SyncLog {
+  id                 String    @id @default(cuid())
+  propertyId         String
+  property           Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  channel            String    // airbnb, booking, ical, etc.
+  status             String    // success, error, pending
+  message            String?
+  syncedAt           DateTime  @default(now())
+
+  @@index([propertyId])
+  @@index([channel])
+  @@index([syncedAt])
+}
